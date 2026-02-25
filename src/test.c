@@ -1,7 +1,7 @@
 #include "handle.h"
 
 #define RUN_TEST(func) do {            \
-    printf("Running %s...", #func);    \
+    printf("Running %s...\n", #func);  \
     clock_t start = clock();           \
                                        \
     short rc = func();                 \
@@ -9,7 +9,7 @@
             printf("[PASS]\n");        \
             passed++;                  \
         } else {                       \
-            printf("[FAIL] ");         \
+            printf("[FAIL]\n");        \
             print_status(rc);          \
             failed++;                  \
         }                              \

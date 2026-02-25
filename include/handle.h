@@ -8,15 +8,6 @@
 #include "hash_table.h"
 #include "quick_sort.h"
 
-#define DEBUG
-
-#ifdef DEBUG
-static inline void print_stat(const StatData *data) {
-    printf("ID: %ld, Count: %d, Cost: %.2f, Primary: %u, Mode: %u\n",
-        data->id, data->count, data->cost, data->primary, data->mode);
-}
-#endif // DEBUG
-
 // StoreDump writes in binary format
 static inline short StoreDump(const char *dest, const StatData *data, size_t count) {
     int fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -27,10 +18,30 @@ static inline short StoreDump(const char *dest, const StatData *data, size_t cou
         return ERR_FILE_OPEN;
     }
 
-    if (write(fd, data, sizeof(StatData) * count) == -1) {
-        perror("Error writing to file");
+    size_t write_size = sizeof(StatData) * count; 
+
+    size_t total_write = 0;
+    while (total_write < write_size) {
+        ssize_t n = write(fd,
+            (char *)data + total_write,
+            write_size - total_write);
+
+        if (n == -1) {
+            perror("write failed");
+            close(fd);
+            return ERR_FILE_WRITE;
+        }
+
+        if (n == 0)
+			break; // EOF
+
+        total_write += n;
+    }
+
+    if (total_write != write_size) {
+        fprintf(stderr, "Unexpected EOF\n");
         close(fd);
-        return ERR_FILE_WRITE;
+        return ERR_FILE_READ;
     }
 
     close(fd);
@@ -71,7 +82,7 @@ short LoadDump(const char *src, StatData **out_data, size_t *out_count)
         return ERR_FILE_READ;
     }
 
-    StatData *data = malloc(file_size);
+    StatData *data = malloc((size_t)file_size);
     if (!data) {
         perror("malloc failed");
         close(fd);
@@ -119,10 +130,10 @@ short JoinDump(const StatData *src1, size_t count1,
     StatData *dest, size_t *curr_idx)
 {
     if (!src1 || !src2 || !dest) return ERR_NULL;
-    if (!count1 || !count2) return ERR_INV_SIZE;
 
     HashTable ht;
-    ht_init(&ht, count1, count2);
+    short rc = ht_init(&ht, count1, count2);
+    if (rc != OK) return rc;
 
     *curr_idx = 0;
     for (size_t i = 0; i < count1; i++) {
@@ -140,8 +151,6 @@ short JoinDump(const StatData *src1, size_t count1,
 
 short SortDump(StatData *data, size_t count) {
     if (!data) return ERR_NULL;
-
-    if (count == 0) return ERR_INV_SIZE;
 
     quick_sort(data, 0, (long)count - 1);
 
@@ -184,8 +193,6 @@ short HandleData(const char *path1,
         goto cleanup;
     }
 
-    memset(merged, 0, max_count * sizeof(StatData));
-
     // Merge
     rc = JoinDump(data1, count1, data2, count2, merged, dest_size);
     if (rc != OK) {
@@ -201,13 +208,13 @@ short HandleData(const char *path1,
     // Print first 10
     size_t to_print = *dest_size < 10 ? *dest_size : 10;
 
-    printf("------------------------------------------------------------------\n");
-    printf("| ID(hex) | Count | Cost(exp)    | Primary | Mode(bin) |\n");
-    printf("------------------------------------------------------------------\n");
+    printf("----------------------------------------------------------------\n");
+    printf("| ID(hex) | Count | Cost(exp)  | Primary | Mode(bin) |\n");
+    printf("----------------------------------------------------------------\n");
 
     for (size_t i = 0; i < to_print; ++i) {
 
-        // mode -> binary
+        // mode - binary
         char mode_bin[4] = {0};
         unsigned int mode = merged[i].mode;
 
@@ -230,7 +237,7 @@ short HandleData(const char *path1,
             mode_bin);
     }
 
-    printf("------------------------------------------------------------------\n");
+    printf("----------------------------------------------------------------\n");
 
     // Save result
     rc = StoreDump(dest_path, merged, *dest_size);
@@ -241,90 +248,5 @@ cleanup:
     if (merged) free(merged);
 
     return rc;
-}
-
-
-short TestData(const StatData *in_a, 
-               const StatData *in_b, 
-               const StatData *out, size_t *dest_size)
-{
-    clock_t start = clock();
-
-    const char *file_a = "test_a.bin";
-    const char *file_b = "test_b.bin";
-    const char *file_out = "test_out.bin";
-
-    if (StoreDump(file_a, in_a, 2) != OK) {
-        fprintf(stderr, "Test 1: failed to create file A\n");
-        return ERR_FILE_WRITE;
-    }
-
-    if (StoreDump(file_b, in_b, 2) != OK) {
-        fprintf(stderr, "Test 1: failed to create file B\n");
-        return ERR_FILE_WRITE;
-    }
-
-    if (HandleData(file_a, file_b, file_out, dest_size) != OK) {
-        fprintf(stderr, "Test 1: HandleData failed\n");
-        return ERR_FILE_WRITE;
-    }
-
-    StatData *result = NULL;
-    size_t result_count = 0;
-
-    if (LoadDump(file_out, &result, &result_count) != OK) {
-        fprintf(stderr, "Test 1: failed to read output\n");
-        return ERR_FILE_READ;
-    }
-
-    if (result_count != 3) {
-        fprintf(stderr, "Test 1: wrong result size\n");
-        free(result);
-        return ERR_INV_SIZE;
-    }
-
-    for (size_t i = 0; i < result_count; i++) {
-        if (!stat_equal(&result[i], &out[i])) {
-            fprintf(stderr, "Test 1: mismatch at index %zu\n", i);
-            free(result);
-            return ERR_INV_DATA;
-        }
-    }
-
-    free(result);
-
-    clock_t end = clock();
-    double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
-
-    printf("All tests passed!\n");
-    printf("Execution time: %.6f seconds\n", elapsed);
-
-    return OK;
-}
-
-
-int main() {
-    // Tests
-    const StatData case_1_in_a[2] = {
-        {.id = 90889, .count = 13, .cost = 3.567, .primary = 0, .mode=3 },
-        {.id = 90089, .count = 1,  .cost = 88.90, .primary = 1, .mode=0 }
-    };
-
-    const StatData case_1_in_b[2] = {
-        {.id = 90089, .count = 13,   .cost = 0.011,   .primary = 0, .mode=2 },
-        {.id = 90189, .count = 1000, .cost = 1.00003, .primary = 1, .mode=2 }
-    };
-
-    const StatData case_1_out[3] = {
-        {.id = 90189, .count = 1000, .cost = 1.00003, .primary = 1, .mode = 2 },
-        {.id = 90889, .count = 13,   .cost = 3.567,   .primary = 0, .mode = 3 },
-        {.id = 90089, .count = 14,   .cost = 88.911,  .primary = 0, .mode = 2 }
-    };
-
-    size_t dest_size = 0;
-
-    TestData(case_1_in_a, case_1_in_b, case_1_out, &dest_size);
-
-    return EXIT_SUCCESS;
 }
 

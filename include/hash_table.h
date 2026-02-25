@@ -39,8 +39,12 @@ static inline void merge_data(StatData *dest,
     dest->mode = MODE_MAX(el1->mode, el2->mode);
 }
 
-static inline size_t hash_long(long key, size_t hsize) {
-    return ((unsigned long)key) & (hsize - 1);
+static inline size_t hash_long(long key, size_t size) {
+    uint64_t x = (uint64_t)key;
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    return x & (size - 1);
 }
 
 // bitset helpers for occupied_bits
@@ -56,7 +60,7 @@ static inline void occupied_clear(unsigned char *bits, size_t idx) {
 
 
 // Hash Table functions
-extern inline void ht_init(HashTable *ht, size_t count1, size_t count2) {
+extern inline short ht_init(HashTable *ht, size_t count1, size_t count2) {
 	ht->size = next_pow2((count1 + count2) * 2);
     ht->arr.data = (StatData *)malloc(ht->size * sizeof(StatData));
     ht->arr.dest_idx = (size_t *)malloc(ht->size * sizeof(size_t));
@@ -66,8 +70,10 @@ extern inline void ht_init(HashTable *ht, size_t count1, size_t count2) {
 
     if (!ht->arr.data || !ht->arr.dest_idx || !ht->arr.occupied_bits) {
         fprintf(stderr, "Memory allocation failed\n");
-        exit(EXIT_FAILURE);
+        return ERR_NOMEM;
     }
+
+    return OK;
 }
 
 extern inline void ht_free(HashTable *ht) {

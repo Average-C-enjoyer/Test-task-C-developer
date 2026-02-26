@@ -13,11 +13,5 @@ int main(int argc, char **argv)
     short rc = HandleData(argv[1], argv[2], argv[3], &dest_size);
     if (rc != OK) print_status(rc); return rc;
 
-    StatData **merged;
-    size_t out_count;
-    rc = LoadDump(argv[3], merged, &out_count);
-    if (rc != OK) print_status(rc); return rc;
-
-    
     return EXIT_SUCCESS;
 }
